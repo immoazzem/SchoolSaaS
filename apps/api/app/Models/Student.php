@@ -1,0 +1,83 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
+
+class Student extends Model
+{
+    use HasFactory, SoftDeletes;
+
+    protected $fillable = [
+        'school_id',
+        'guardian_id',
+        'admission_no',
+        'full_name',
+        'name_bn',
+        'father_name',
+        'mother_name',
+        'email',
+        'phone',
+        'gender',
+        'religion',
+        'date_of_birth',
+        'admitted_on',
+        'address',
+        'medical_notes',
+        'status',
+    ];
+
+    /**
+     * @var list<string>
+     */
+    protected $appends = [
+        'display_name',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'date_of_birth' => 'date',
+            'admitted_on' => 'date',
+        ];
+    }
+
+    /**
+     * @return Attribute<string, never>
+     */
+    protected function displayName(): Attribute
+    {
+        return Attribute::get(fn (): string => app()->getLocale() === 'bn' && filled($this->name_bn)
+            ? $this->name_bn
+            : $this->full_name);
+    }
+
+    /**
+     * @return BelongsTo<School, $this>
+     */
+    public function school(): BelongsTo
+    {
+        return $this->belongsTo(School::class);
+    }
+
+    /**
+     * @return BelongsTo<Guardian, $this>
+     */
+    public function guardian(): BelongsTo
+    {
+        return $this->belongsTo(Guardian::class);
+    }
+
+    /**
+     * @return HasMany<StudentEnrollment, $this>
+     */
+    public function enrollments(): HasMany
+    {
+        return $this->hasMany(StudentEnrollment::class);
+    }
+}
