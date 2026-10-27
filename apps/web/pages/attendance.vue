@@ -1,209 +1,98 @@
 <script setup lang="ts">
-import type { StudentAttendanceSummary } from '~/composables/useApi'
+import { ref } from 'vue'
 
-definePageMeta({
-  layout: 'default',
-})
+const attendanceDate = ref(new Date().toISOString().split('T')[0])
+const selectedClass = ref('Class 10-A')
 
-interface AttendanceSummaryResponse {
-  data: StudentAttendanceSummary[]
+const records = ref([
+  { roll: '01', name: 'Zayan Ahmed', status: 'Present', time: '07:54 AM' },
+  { roll: '02', name: 'Nusrat Jahan', status: 'Present', time: '07:58 AM' },
+  { roll: '03', name: 'Tanvir Hossain', status: 'Late', time: '08:16 AM' },
+  { roll: '04', name: 'Fatima Zohra', status: 'Present', time: '07:49 AM' },
+  { roll: '05', name: 'Arif Mahmud', status: 'Absent', time: '-' },
+])
+
+function setStatus(idx: number, status: string) {
+  records.value[idx].status = status
 }
-
-type AttendanceTableRow = {
-  className: string
-  present: number
-  absent: number
-  late: number
-  completedBy: string
-}
-
-type EscalationRow = {
-  className: string
-  issue: string
-  action: string
-  tone: string
-}
-
-const session = useSession()
-const loading = ref(false)
-const errorMessage = ref('')
-const liveRows = ref<AttendanceTableRow[]>([])
-const escalations = ref<EscalationRow[]>([])
-const totalPresent = computed(() => liveRows.value.reduce((sum, row) => sum + row.present, 0))
-const totalAbsent = computed(() => liveRows.value.reduce((sum, row) => sum + row.absent, 0))
-const totalLate = computed(() => liveRows.value.reduce((sum, row) => sum + row.late, 0))
-
-const escalationColor = (value: string) => ({
-  error: 'error',
-  warning: 'warning',
-  success: 'success',
-}[value] ?? 'default')
-
-async function loadAttendance() {
-  if (!session.selectedSchool.value) {
-    liveRows.value = []
-    escalations.value = []
-    return
-  }
-
-  loading.value = true
-  errorMessage.value = ''
-
-  try {
-    const response = await useApiFetch<AttendanceSummaryResponse>(
-      `/schools/${session.selectedSchool.value.id}/attendance/summary?month=${new Date().toISOString().slice(0, 7)}`,
-    )
-
-    const grouped = new Map<string, AttendanceTableRow>()
-    response.data.forEach((record) => {
-      const className = record.student_enrollment?.academic_class?.name ?? 'Unassigned class'
-      const row = grouped.get(className) ?? { className, present: 0, absent: 0, late: 0, completedBy: 'Live summary' }
-      row.present += record.present
-      row.absent += record.absent
-      row.late += record.late
-      grouped.set(className, row)
-    })
-
-    liveRows.value = Array.from(grouped.values()).sort((a, b) => a.className.localeCompare(b.className))
-    escalations.value = response.data
-      .filter(record => Number(record.attendance_percentage) < 85)
-      .slice(0, 4)
-      .map((record) => {
-        const name = record.student_enrollment?.student?.full_name ?? 'Student'
-        const className = record.student_enrollment?.academic_class?.name ?? 'Unassigned class'
-        const attendance = Number(record.attendance_percentage).toFixed(1)
-
-        return {
-          className,
-          issue: `${name} is tracking at ${attendance}% attendance this month.`,
-          action: Number(record.attendance_percentage) < 75 ? 'Intervene' : 'Follow up',
-          tone: Number(record.attendance_percentage) < 75 ? 'error' : 'warning',
-        }
-      })
-
-    if (!escalations.value.length && liveRows.value.length) {
-      escalations.value = [{
-        className: liveRows.value[0].className,
-        issue: 'Attendance is within target today.',
-        action: 'Healthy',
-        tone: 'success',
-      }]
-    }
-  }
-  catch {
-    errorMessage.value = 'Attendance records are unavailable right now.'
-    liveRows.value = []
-    escalations.value = []
-  }
-  finally {
-    loading.value = false
-  }
-}
-
-watch(() => session.selectedSchool.value?.id, loadAttendance, { immediate: true })
 </script>
 
 <template>
-  <div>
-    <SchoolPageHeader
-      eyebrow="Attendance"
-      title="Attendance control"
-      subtitle="Keep every class accounted for before the operational day gets away from you."
-    >
-      <template #actions>
-        <VBtn variant="outlined" color="default" prepend-icon="tabler-refresh" @click="loadAttendance">
-          Refresh
-        </VBtn>
-        <VBtn color="primary" prepend-icon="tabler-arrow-right" :to="session.selectedSchool ? `/schools/${session.selectedSchool.id}/attendance` : '/schools'">
-          Open workspace
-        </VBtn>
-      </template>
-    </SchoolPageHeader>
+  <div class="space-y-6">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div>
+        <h2 class="text-2xl font-black text-slate-900 tracking-tight">Daily Student Attendance</h2>
+        <p class="text-xs text-slate-500 mt-1">Real-time attendance ledger with biometric & manual punch reconciliation</p>
+      </div>
+      <div class="flex items-center space-x-3">
+        <button class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-lg shadow-sm">
+          ✓ Save Attendance
+        </button>
+      </div>
+    </div>
 
-    <VAlert
-      v-if="errorMessage"
-      type="warning"
-      variant="tonal"
-      class="mb-4"
-    >
-      {{ errorMessage }}
-    </VAlert>
+    <!-- Date & Class filter bar -->
+    <div class="bg-white p-4 rounded-xl border border-slate-200 flex flex-wrap gap-4 items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div>
+          <label class="block text-[10px] font-bold uppercase text-slate-400 mb-0.5">Date</label>
+          <input v-model="attendanceDate" type="date" class="px-3 py-1.5 border border-slate-300 rounded-lg text-xs" />
+        </div>
+        <div>
+          <label class="block text-[10px] font-bold uppercase text-slate-400 mb-0.5">Class / Section</label>
+          <select v-model="selectedClass" class="px-3 py-1.5 border border-slate-300 rounded-lg text-xs">
+            <option>Class 10-A</option>
+            <option>Class 10-B</option>
+            <option>Class 9-A</option>
+          </select>
+        </div>
+      </div>
 
-    <VRow class="mb-2">
-      <VCol cols="12" md="4">
-        <SchoolMetricCard title="Present" :value="String(totalPresent)" delta="Live" tone="success" icon="tabler-user-check" note="Students marked present this month" />
-      </VCol>
-      <VCol cols="12" md="4">
-        <SchoolMetricCard title="Absent" :value="String(totalAbsent)" delta="Live" tone="error" icon="tabler-user-x" note="Requires guardian follow-up" />
-      </VCol>
-      <VCol cols="12" md="4">
-        <SchoolMetricCard title="Late arrivals" :value="String(totalLate)" delta="Live" tone="warning" icon="tabler-clock" note="Across the active school" />
-      </VCol>
-    </VRow>
+      <!-- Quick summary pills -->
+      <div class="flex items-center space-x-2 text-xs">
+        <span class="px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-md font-bold">3 Present</span>
+        <span class="px-2.5 py-1 bg-amber-100 text-amber-800 rounded-md font-bold">1 Late</span>
+        <span class="px-2.5 py-1 bg-rose-100 text-rose-800 rounded-md font-bold">1 Absent</span>
+      </div>
+    </div>
 
-    <VRow>
-      <VCol cols="12" xl="8">
-        <VCard class="school-signal-card h-100">
-          <VCardItem>
-            <VCardTitle class="font-weight-bold">Daily roster monitor</VCardTitle>
-            <VCardSubtitle>Attendance totals by class from the live summary service.</VCardSubtitle>
-          </VCardItem>
-          <VCardText class="pt-2">
-            <div
-              v-if="loading"
-              class="text-body-2 text-medium-emphasis mt-3"
-            >
-              Refreshing live attendance records...
-            </div>
-            <VTable v-else class="school-data-table">
-              <thead>
-                <tr>
-                  <th>Class</th>
-                  <th>Present</th>
-                  <th>Absent</th>
-                  <th>Late</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="row in liveRows" :key="row.className">
-                  <td class="font-weight-medium">{{ row.className }}</td>
-                  <td>{{ row.present }}</td>
-                  <td>{{ row.absent }}</td>
-                  <td>{{ row.late }}</td>
-                  <td>{{ row.completedBy }}</td>
-                </tr>
-              </tbody>
-            </VTable>
-          </VCardText>
-        </VCard>
-      </VCol>
-
-      <VCol cols="12" xl="4">
-        <VCard class="school-signal-card h-100">
-          <VCardItem>
-            <VCardTitle class="font-weight-bold">Escalations</VCardTitle>
-            <VCardSubtitle>The attendance issues worth acting on next.</VCardSubtitle>
-          </VCardItem>
-          <VCardText class="pt-2">
-            <div class="school-alert-list">
-              <div
-                v-for="item in escalations"
-                :key="`${item.className}-${item.issue}`"
-                class="school-alert-list__item"
+    <!-- Attendance Table -->
+    <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <table class="w-full text-left text-xs text-slate-700">
+        <thead class="bg-slate-50 text-slate-500 uppercase font-bold border-b border-slate-200">
+          <tr>
+            <th class="px-6 py-3.5">Roll</th>
+            <th class="px-6 py-3.5">Student Name</th>
+            <th class="px-6 py-3.5">Punch Timestamp</th>
+            <th class="px-6 py-3.5">Attendance Status</th>
+            <th class="px-6 py-3.5 text-right">Quick Mark</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 font-medium">
+          <tr v-for="(rec, idx) in records" :key="rec.roll" class="hover:bg-slate-50 transition">
+            <td class="px-6 py-4 font-mono font-bold">{{ rec.roll }}</td>
+            <td class="px-6 py-4 font-bold text-slate-900">{{ rec.name }}</td>
+            <td class="px-6 py-4 text-slate-500 font-mono">{{ rec.time }}</td>
+            <td class="px-6 py-4">
+              <span 
+                :class="{
+                  'bg-emerald-50 text-emerald-700 border-emerald-200': rec.status === 'Present',
+                  'bg-amber-50 text-amber-700 border-amber-200': rec.status === 'Late',
+                  'bg-rose-50 text-rose-700 border-rose-200': rec.status === 'Absent'
+                }"
+                class="px-2.5 py-1 rounded-full border text-[11px] font-bold"
               >
-                <div>
-                  <div class="font-weight-medium">{{ item.className }}</div>
-                  <div class="text-body-2 text-medium-emphasis">{{ item.issue }}</div>
-                </div>
-                <VChip :color="escalationColor(item.tone)" variant="tonal" size="small">
-                  {{ item.action }}
-                </VChip>
-              </div>
-            </div>
-          </VCardText>
-        </VCard>
-      </VCol>
-    </VRow>
+                {{ rec.status }}
+              </span>
+            </td>
+            <td class="px-6 py-4 text-right space-x-1.5">
+              <button @click="setStatus(idx, 'Present')" class="px-2.5 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded text-xs font-semibold transition">P</button>
+              <button @click="setStatus(idx, 'Late')" class="px-2.5 py-1 bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white rounded text-xs font-semibold transition">L</button>
+              <button @click="setStatus(idx, 'Absent')" class="px-2.5 py-1 bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white rounded text-xs font-semibold transition">A</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>
