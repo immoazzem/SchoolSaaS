@@ -1,433 +1,298 @@
 <script lang="ts" setup>
-import type { DashboardSummary } from '~/composables/useApi'
-
 definePageMeta({
-  layout: 'default',
+  layout: 'blank',
+  public: true,
 })
 
-interface DashboardSummaryResponse {
-  data: DashboardSummary
-}
+const session = useSession()
 
-interface DashboardStat {
-  title: string
-  value: string
-  delta: string
-  tone: string
-  icon: string
-  note: string
-}
-
-type DashboardAlert = {
-  title: string
-  severity: string
-  time: string
-}
-
-type CollectionRow = {
-  label: string
-  value: number
-}
-
-type QueueRow = {
-  name: string
-  owner: string
-  status: string
-  updated: string
-}
-
-type PortfolioRow = {
-  id: number
-  name: string
-  students: string
-  staff: string
-  attendance: string
-  collection: string
-}
-
-const dashboardQuickActions = [
-  { label: 'Mark attendance', to: '/attendance', icon: 'tabler-user-check' },
-  { label: 'Publish marks', to: '/marks', icon: 'tabler-clipboard-check' },
-  { label: 'Collect fees', to: '/finance/fees', icon: 'tabler-receipt-2' },
-  { label: 'Issue notice', to: '/notices', icon: 'tabler-speakerphone' },
+const pricingTiers = [
+  {
+    name: 'Starter School',
+    price: '$29',
+    period: '/month',
+    description: 'Perfect for single branch primary or secondary schools getting started.',
+    features: [
+      'Up to 500 Students',
+      'Full Academic & Class Management',
+      'Daily Student & Staff Attendance',
+      'Basic Fee Collection & Receipts',
+      'Parent & Student Mobile Portals',
+      'Email Support',
+    ],
+    highlight: false,
+    cta: 'Start Free Trial',
+  },
+  {
+    name: 'School Pro',
+    price: '$89',
+    period: '/month',
+    description: 'For growing institutions that need automated billing, exams, and payroll.',
+    features: [
+      'Up to 2,500 Students',
+      'Automated Invoicing & SMS Alerts',
+      'Exam Scheduling & GPA Engine',
+      'Employee Payroll & Leave Approvals',
+      'Digital Fee Gateways (bKash, Cards)',
+      'Offline-First Progressive Web App',
+      'Priority 24/7 Support',
+    ],
+    highlight: true,
+    cta: 'Get Started with Pro',
+  },
+  {
+    name: 'Multi-Campus Enterprise',
+    price: '$249',
+    period: '/month',
+    description: 'Complete operational mastery for educational trusts and campus networks.',
+    features: [
+      'Unlimited Students & Staff',
+      'Unlimited School Branches / Campuses',
+      'Custom Role & Fine-Grained RBAC',
+      'Full Audit Logging & Data Export',
+      'Dedicated Database Instance Option',
+      'Custom Domain & Subdomain Mapping',
+      'Dedicated Account Manager',
+    ],
+    highlight: false,
+    cta: 'Contact Sales',
+  },
 ]
 
-const session = useSession()
-const dashboardLoading = ref(false)
-const dashboardError = ref('')
-const activeStats = ref<DashboardStat[]>([])
-const activeCollections = ref<CollectionRow[]>([])
-const activeAlerts = ref<DashboardAlert[]>([])
-const reportQueue = ref<QueueRow[]>([])
-const portfolioRows = ref<PortfolioRow[]>([])
-
-function alertTone(severity: string) {
-  return {
-    Critical: 'error',
-    Warning: 'warning',
-    Info: 'default',
-  }[severity] ?? 'default'
-}
-
-async function loadDashboard() {
-  if (!session.schools.value.length) {
-    activeStats.value = []
-    activeCollections.value = []
-    activeAlerts.value = []
-    reportQueue.value = []
-    portfolioRows.value = []
-    return
-  }
-
-  dashboardLoading.value = true
-  dashboardError.value = ''
-
-  try {
-    const results = await Promise.all(
-      session.schools.value.map(async (school) => {
-        const response = await useApiFetch<DashboardSummaryResponse>(`/schools/${school.id}/dashboard/summary`)
-        return {
-          school,
-          summary: response.data,
-        }
-      }),
-    )
-
-    const totalStudents = results.reduce((sum, item) => sum + item.summary.admin.student_count, 0)
-    const totalEmployees = results.reduce((sum, item) => sum + item.summary.admin.employee_count, 0)
-    const feeThisMonth = results.reduce((sum, item) => sum + Number(item.summary.admin.fee_collection_this_month), 0)
-    const feeLastMonth = results.reduce((sum, item) => sum + Number(item.summary.admin.fee_collection_last_month), 0)
-    const pendingLeaves = results.reduce((sum, item) => sum + item.summary.admin.pending_leave_applications, 0)
-    const attendanceAverage = results.length
-      ? results.reduce((sum, item) => sum + Number(item.summary.admin.today_attendance_rate), 0) / results.length
-      : 0
-    const collectionDelta = feeLastMonth > 0 ? ((feeThisMonth - feeLastMonth) / feeLastMonth) * 100 : 0
-
-    activeStats.value = [
-      {
-        title: 'Active students',
-        value: totalStudents.toLocaleString(),
-        delta: `+${results.length}`,
-        tone: 'primary',
-        icon: 'tabler-users',
-        note: `Across ${results.length} schools`,
-      },
-      {
-        title: 'Attendance today',
-        value: `${attendanceAverage.toFixed(1)}%`,
-        delta: `${attendanceAverage >= 90 ? '+' : ''}${(attendanceAverage - 90).toFixed(1)} pts`,
-        tone: 'success',
-        icon: 'tabler-user-check',
-        note: `${totalEmployees.toLocaleString()} employees in directory`,
-      },
-      {
-        title: 'Fee collection',
-        value: `৳ ${Math.round(feeThisMonth).toLocaleString()}`,
-        delta: `${collectionDelta >= 0 ? '+' : ''}${collectionDelta.toFixed(1)}%`,
-        tone: 'warning',
-        icon: 'tabler-receipt-2',
-        note: 'Month to date',
-      },
-      {
-        title: 'Pending leave approvals',
-        value: pendingLeaves.toLocaleString(),
-        delta: pendingLeaves > 0 ? 'Action needed' : 'Clear',
-        tone: 'info',
-        icon: 'tabler-clipboard-check',
-        note: 'Awaiting decision',
-      },
-    ]
-
-    const collectionByMonth = new Map<string, number>()
-    results.forEach(({ summary }) => {
-      summary.accountant.collection_trend.forEach((item) => {
-        collectionByMonth.set(item.month, (collectionByMonth.get(item.month) ?? 0) + Number(item.total))
-      })
-    })
-    const trendEntries = Array.from(collectionByMonth.entries()).slice(-5)
-    const maxTotal = Math.max(...trendEntries.map(([, total]) => total), 1)
-    activeCollections.value = trendEntries.map(([label, total]) => ({
-      label,
-      value: Math.max(8, Math.round((total / maxTotal) * 100)),
-    }))
-
-    activeAlerts.value = results.flatMap(({ school, summary }) =>
-      summary.admin.attendance_concerns.slice(0, 2).map(item => ({
-        title: item.student_enrollment?.student?.full_name
-          ? `${item.student_enrollment.student.full_name} at ${school.name} dropped below threshold`
-          : `${school.name} has an attendance concern`,
-        severity: item.attendance_percentage < 60 ? 'Critical' : 'Warning',
-        time: `${Number(item.attendance_percentage).toFixed(1)}% attendance`,
-      })),
-    ).slice(0, 6)
-
-    reportQueue.value = results.map(({ school, summary }) => ({
-      name: `${school.name} export pack`,
-      owner: 'Reporting workspace',
-      status: summary.teacher.pending_marks_entries > 0 ? 'Needs review' : 'Ready',
-      updated: `${summary.admin.upcoming_exams.length} upcoming exams`,
-    }))
-
-    portfolioRows.value = results.map(({ school, summary }) => {
-      const billed = Number(summary.admin.fee_collection_this_month) + summary.accountant.outstanding_by_class.reduce((sum, item) => sum + Number(item.outstanding), 0)
-      const collection = billed > 0
-        ? `${Math.round((Number(summary.admin.fee_collection_this_month) / billed) * 100)}%`
-        : '0%'
-
-      return {
-        id: school.id,
-        name: school.name,
-        students: summary.admin.student_count.toLocaleString(),
-        staff: summary.admin.employee_count.toLocaleString(),
-        attendance: `${Number(summary.admin.today_attendance_rate).toFixed(1)}%`,
-        collection,
-      }
-    })
-  }
-  catch {
-    dashboardError.value = 'Live dashboard data is unavailable right now.'
-    activeStats.value = []
-    activeCollections.value = []
-    activeAlerts.value = []
-    reportQueue.value = []
-    portfolioRows.value = []
-  }
-  finally {
-    dashboardLoading.value = false
-  }
-}
-
-watch(() => session.schools.value.map(school => school.id).join(','), loadDashboard, { immediate: true })
+const features = [
+  {
+    icon: 'tabler-building',
+    title: 'Multi-Campus Multi-Tenancy',
+    desc: 'Run 1 or 100 schools under isolated databases with zero cross-tenant data leakage and custom school domains.',
+  },
+  {
+    icon: 'tabler-user-check',
+    title: 'Smart Attendance & Late Tracking',
+    desc: 'Instant QR / roster attendance with late arrival tracking, half-day records, and instant SMS alerts to parents.',
+  },
+  {
+    icon: 'tabler-receipt-2',
+    title: 'Automated Billing & Gateways',
+    desc: 'Generate monthly invoices in bulk, apply student discounts, and collect payments via bKash, Nagad, Stripe, or cash.',
+  },
+  {
+    icon: 'tabler-award',
+    title: 'Exams, GPA & Marks Management',
+    desc: 'Customizable grade scales (Bangladesh 5.0 GPA & Letter Grades), exam schedules, teacher verification, and marksheet PDFs.',
+  },
+  {
+    icon: 'tabler-device-mobile',
+    title: 'Student & Parent Portals',
+    desc: 'Transparent access for parents and students to view report cards, fee dues, attendance percentage, and notices on any device.',
+  },
+  {
+    icon: 'tabler-wifi-off',
+    title: 'Offline-First Resilience (PWA)',
+    desc: 'Keep recording attendance and grades even during network drops. Queued mutations automatically sync upon reconnecting.',
+  },
+]
 </script>
 
 <template>
-  <div class="school-dashboard">
-    <SchoolPageHeader
-      eyebrow="Operations"
-      title="School command center"
-      subtitle="A cleaner daily view of enrollment, academics, collection health, and leadership priorities."
-    >
-      <template #actions>
-        <VBtn
-          variant="outlined"
-          color="default"
-          prepend-icon="tabler-building-community"
-          to="/schools"
-        >
-          Portfolio
-        </VBtn>
-        <VBtn
-          color="primary"
-          prepend-icon="tabler-plus"
-          to="/notices"
-        >
-          Create notice
-        </VBtn>
-      </template>
-    </SchoolPageHeader>
+  <div class="landing-page min-h-screen bg-slate-950 text-slate-100 selection:bg-blue-600 selection:text-white">
+    <!-- Navigation Bar -->
+    <header class="sticky top-0 z-50 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md">
+      <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+        <div class="flex items-center gap-3">
+          <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 font-bold text-white shadow-lg shadow-blue-500/25">
+            SS
+          </div>
+          <div>
+            <span class="text-xl font-bold tracking-tight text-white">School<span class="text-blue-500">SaaS</span></span>
+            <span class="ml-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-400">v2.0 Enterprise</span>
+          </div>
+        </div>
 
-    <VAlert
-      v-if="dashboardError"
-      type="warning"
-      variant="tonal"
-      class="mb-4"
-    >
-      {{ dashboardError }}
-    </VAlert>
+        <nav class="hidden md:flex items-center gap-8 text-sm font-medium text-slate-300">
+          <a href="#features" class="transition hover:text-white">Features</a>
+          <a href="#solutions" class="transition hover:text-white">Academic Suite</a>
+          <a href="#pricing" class="transition hover:text-white">Pricing</a>
+          <a href="#security" class="transition hover:text-white">Security & RBAC</a>
+        </nav>
 
-    <VRow class="mb-2">
-      <VCol
-        v-for="stat in activeStats"
-        :key="stat.title"
-        cols="12"
-        md="6"
-        xl="3"
-      >
-        <SchoolMetricCard v-bind="stat" />
-      </VCol>
-    </VRow>
+        <div class="flex items-center gap-4">
+          <template v-if="session.token.value">
+            <NuxtLink to="/dashboard" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500 shadow-sm shadow-blue-600/30">
+              Go to Workspace →
+            </NuxtLink>
+          </template>
+          <template v-else>
+            <NuxtLink to="/login" class="text-sm font-medium text-slate-300 transition hover:text-white">
+              Sign In
+            </NuxtLink>
+            <NuxtLink to="/login" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500 shadow-sm shadow-blue-600/30">
+              Live Demo
+            </NuxtLink>
+          </template>
+        </div>
+      </div>
+    </header>
 
-    <VRow class="mb-2">
-      <VCol cols="12" xl="8">
-        <VCard class="school-signal-card h-100">
-          <VCardItem>
-            <template #prepend>
-              <VAvatar color="primary" variant="tonal" rounded="lg">
-                <VIcon icon="tabler-bolt" />
-              </VAvatar>
-            </template>
-            <VCardTitle class="font-weight-bold">
-              Most-used workflows
-            </VCardTitle>
-            <VCardSubtitle>Jump straight into the tasks that run the school day.</VCardSubtitle>
-          </VCardItem>
+    <!-- Hero Section -->
+    <section class="relative overflow-hidden px-6 pt-20 pb-28 text-center lg:pt-32">
+      <!-- Background Ambient Glow -->
+      <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div class="h-[450px] w-[650px] rounded-full bg-blue-600/20 blur-[130px]" />
+      </div>
 
-          <VCardText class="pt-2">
-            <div class="school-action-grid">
-              <NuxtLink
-                v-for="action in dashboardQuickActions"
-                :key="action.label"
-                :to="action.to"
-                class="school-action-grid__item"
-              >
-                <span class="school-action-grid__icon">
-                  <VIcon :icon="action.icon" />
-                </span>
-                <span class="school-action-grid__label">{{ action.label }}</span>
-                <VIcon icon="tabler-arrow-up-right" size="16" />
-              </NuxtLink>
+      <div class="relative mx-auto max-w-4xl">
+        <div class="inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-1.5 text-xs font-medium text-blue-400 mb-8">
+          <span class="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+          The Unified Operating System for Modern Education
+        </div>
+
+        <h1 class="text-4xl font-extrabold tracking-tight sm:text-6xl lg:text-7xl">
+          Everything your school needs, <br>
+          <span class="bg-gradient-to-r from-blue-400 via-indigo-300 to-teal-300 bg-clip-text text-transparent">
+            in one intelligent platform.
+          </span>
+        </h1>
+
+        <p class="mx-auto mt-6 max-w-2xl text-lg text-slate-400 sm:text-xl">
+          From student admissions and real-time attendance to complex term exams, multi-channel fee billing, and teacher payroll — engineered for modern schools of all sizes.
+        </p>
+
+        <div class="mt-10 flex flex-wrap items-center justify-center gap-4">
+          <NuxtLink to="/login" class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-7 py-3.5 text-base font-semibold text-white shadow-xl shadow-blue-600/25 transition hover:from-blue-500 hover:to-indigo-500">
+            <span>Explore Demo Campus</span>
+            <span class="text-xl">→</span>
+          </NuxtLink>
+          <a href="#features" class="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/60 px-6 py-3.5 text-base font-semibold text-slate-300 transition hover:border-slate-600 hover:bg-slate-800 hover:text-white">
+            View All Features
+          </a>
+        </div>
+
+        <!-- Metric Badges -->
+        <div class="mt-16 grid grid-cols-2 gap-4 border-t border-slate-800/80 pt-10 sm:grid-cols-4">
+          <div>
+            <div class="text-3xl font-extrabold text-white">250+</div>
+            <div class="text-xs font-medium text-slate-400 mt-1">Versioned API Endpoints</div>
+          </div>
+          <div>
+            <div class="text-3xl font-extrabold text-blue-400">7 Roles</div>
+            <div class="text-xs font-medium text-slate-400 mt-1">Granular RBAC Security</div>
+          </div>
+          <div>
+            <div class="text-3xl font-extrabold text-emerald-400">100%</div>
+            <div class="text-xs font-medium text-slate-400 mt-1">Tenant Data Isolation</div>
+          </div>
+          <div>
+            <div class="text-3xl font-extrabold text-amber-400">PWA Ready</div>
+            <div class="text-xs font-medium text-slate-400 mt-1">Offline-First Sync</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features Grid -->
+    <section id="features" class="border-t border-slate-800/80 bg-slate-900/40 px-6 py-24">
+      <div class="mx-auto max-w-7xl">
+        <div class="text-center">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-blue-400">Enterprise Capabilities</h2>
+          <p class="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">
+            Built for everyday teachers, accountants, and principals
+          </p>
+          <p class="mx-auto mt-4 max-w-2xl text-sm text-slate-400">
+            Every module is crafted to eliminate repetitive manual work, prevent revenue leakage, and keep guardians informed.
+          </p>
+        </div>
+
+        <div class="mt-16 grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3">
+          <div v-for="feat in features" :key="feat.title" class="group relative rounded-2xl border border-slate-800 bg-slate-900/50 p-8 transition hover:border-blue-500/50 hover:bg-slate-800/50">
+            <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400 group-hover:bg-blue-600 group-hover:text-white transition">
+              <VIcon :icon="feat.icon" size="24" />
             </div>
-          </VCardText>
-        </VCard>
-      </VCol>
+            <h3 class="mt-5 text-xl font-semibold text-white">{{ feat.title }}</h3>
+            <p class="mt-2 text-sm leading-relaxed text-slate-400">{{ feat.desc }}</p>
+          </div>
+        </div>
+      </div>
+    </section>
 
-      <VCol cols="12" xl="4">
-        <VCard class="school-signal-card h-100">
-          <VCardItem>
-            <VCardTitle class="font-weight-bold">
-              Attention queue
-            </VCardTitle>
-            <VCardSubtitle>Issues that need leadership action today.</VCardSubtitle>
-          </VCardItem>
+    <!-- Pricing Section -->
+    <section id="pricing" class="px-6 py-24">
+      <div class="mx-auto max-w-7xl">
+        <div class="text-center">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-blue-400">Transparent Pricing</h2>
+          <p class="mt-2 text-3xl font-bold tracking-tight text-white sm:text-4xl">
+            Simple, predictable pricing for schools
+          </p>
+          <p class="mx-auto mt-4 max-w-2xl text-sm text-slate-400">
+            No hidden setup fees. Upgrade or adjust plans as your student body expands.
+          </p>
+        </div>
 
-          <VCardText class="pt-2">
-            <div
-              v-if="dashboardLoading"
-              class="text-body-2 text-medium-emphasis"
+        <div class="mt-16 grid grid-cols-1 gap-8 lg:grid-cols-3">
+          <div
+            v-for="tier in pricingTiers"
+            :key="tier.name"
+            class="relative flex flex-col rounded-2xl border p-8 transition"
+            :class="tier.highlight ? 'border-blue-500 bg-blue-950/20 shadow-2xl shadow-blue-500/10' : 'border-slate-800 bg-slate-900/40'"
+          >
+            <div v-if="tier.highlight" class="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded-full bg-blue-600 px-3 py-1 text-[11px] font-bold text-white uppercase tracking-wider">
+              Most Popular
+            </div>
+
+            <div>
+              <h3 class="text-xl font-bold text-white">{{ tier.name }}</h3>
+              <p class="mt-2 text-xs text-slate-400">{{ tier.description }}</p>
+              <div class="mt-6 flex items-baseline gap-1">
+                <span class="text-4xl font-extrabold text-white">{{ tier.price }}</span>
+                <span class="text-sm font-medium text-slate-400">{{ tier.period }}</span>
+              </div>
+            </div>
+
+            <ul class="mt-8 flex-1 space-y-3 border-t border-slate-800/80 pt-6 text-sm text-slate-300">
+              <li v-for="item in tier.features" :key="item" class="flex items-center gap-3">
+                <VIcon icon="tabler-check" size="18" class="text-emerald-400 shrink-0" />
+                <span>{{ item }}</span>
+              </li>
+            </ul>
+
+            <NuxtLink
+              to="/login"
+              class="mt-8 block rounded-xl py-3 text-center text-sm font-semibold transition"
+              :class="tier.highlight ? 'bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-600/30' : 'border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 hover:text-white'"
             >
-              Refreshing portfolio attention queue...
-            </div>
-            <div v-else class="school-alert-list">
-              <div
-                v-for="alert in activeAlerts"
-                :key="alert.title"
-                class="school-alert-list__item"
-              >
-                <div>
-                  <div class="font-weight-medium">
-                    {{ alert.title }}
-                  </div>
-                  <div class="text-body-2 text-medium-emphasis">
-                    {{ alert.time }}
-                  </div>
-                </div>
-                <VChip
-                  :color="alertTone(alert.severity)"
-                  variant="tonal"
-                  size="small"
-                >
-                  {{ alert.severity }}
-                </VChip>
-              </div>
-            </div>
-          </VCardText>
-        </VCard>
-      </VCol>
-    </VRow>
+              {{ tier.cta }}
+            </NuxtLink>
+          </div>
+        </div>
+      </div>
+    </section>
 
-    <VRow class="mb-2">
-      <VCol cols="12" xl="7">
-        <VCard class="school-signal-card h-100">
-          <VCardItem>
-            <VCardTitle class="font-weight-bold">
-              Collections trend
-            </VCardTitle>
-            <VCardSubtitle>Monthly collection strength across the group.</VCardSubtitle>
-          </VCardItem>
+    <!-- Footer -->
+    <footer class="border-t border-slate-800/80 bg-slate-950 px-6 py-12 text-sm text-slate-500">
+      <div class="mx-auto flex max-w-7xl flex-col items-center justify-between gap-6 sm:flex-row">
+        <div class="flex items-center gap-3">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 font-bold text-white text-xs">
+            SS
+          </div>
+          <span class="font-bold text-slate-300">SchoolSaaS Platform</span>
+        </div>
 
-          <VCardText class="pt-2">
-            <div class="school-bar-stack">
-              <div
-                v-for="row in activeCollections"
-                :key="row.label"
-                class="school-bar-stack__row"
-              >
-                <div class="school-bar-stack__label">
-                  {{ row.label }}
-                </div>
-                <div class="school-bar-stack__track">
-                  <div class="school-bar-stack__fill" :style="{ width: `${row.value}%` }" />
-                </div>
-                <div class="school-bar-stack__value">
-                  {{ row.value }}%
-                </div>
-              </div>
-            </div>
-          </VCardText>
-        </VCard>
-      </VCol>
+        <div class="flex gap-6 text-xs text-slate-400">
+          <NuxtLink to="/login" class="hover:text-white">Admin Login</NuxtLink>
+          <NuxtLink to="/login" class="hover:text-white">Teacher Portal</NuxtLink>
+          <NuxtLink to="/login" class="hover:text-white">Guardian Portal</NuxtLink>
+          <a href="https://github.com/immoazzem/SchoolSaaS" target="_blank" class="hover:text-white">GitHub Repository</a>
+        </div>
 
-      <VCol cols="12" xl="5">
-        <VCard class="school-signal-card h-100">
-          <VCardItem>
-            <VCardTitle class="font-weight-bold">
-              Report queue
-            </VCardTitle>
-            <VCardSubtitle>What is ready for export and what still needs review.</VCardSubtitle>
-          </VCardItem>
-
-          <VCardText class="pt-2">
-            <div class="school-alert-list">
-              <div
-                v-for="report in reportQueue"
-                :key="report.name"
-                class="school-alert-list__item"
-              >
-                <div>
-                  <div class="font-weight-medium">
-                    {{ report.name }}
-                  </div>
-                  <div class="text-body-2 text-medium-emphasis">
-                    {{ report.owner }} · {{ report.updated }}
-                  </div>
-                </div>
-                <VChip
-                  :color="report.status === 'Ready' ? 'success' : report.status === 'Needs review' ? 'warning' : 'default'"
-                  variant="tonal"
-                  size="small"
-                >
-                  {{ report.status }}
-                </VChip>
-              </div>
-            </div>
-          </VCardText>
-        </VCard>
-      </VCol>
-    </VRow>
-
-    <VRow>
-      <VCol cols="12">
-        <VCard class="school-signal-card">
-          <VCardItem>
-            <VCardTitle class="font-weight-bold">
-              Campus portfolio
-            </VCardTitle>
-            <VCardSubtitle>Compare school health at the portfolio level without leaving the dashboard.</VCardSubtitle>
-          </VCardItem>
-          <VCardText class="pt-2">
-            <VTable class="school-data-table">
-              <thead>
-                <tr>
-                  <th>School</th>
-                  <th>Students</th>
-                  <th>Staff</th>
-                  <th>Attendance</th>
-                  <th>Collection</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="school in portfolioRows" :key="school.id">
-                  <td class="font-weight-medium">{{ school.name }}</td>
-                  <td>{{ school.students }}</td>
-                  <td>{{ school.staff }}</td>
-                  <td>{{ school.attendance }}</td>
-                  <td>{{ school.collection }}</td>
-                </tr>
-              </tbody>
-            </VTable>
-          </VCardText>
-        </VCard>
-      </VCol>
-    </VRow>
+        <div class="text-xs">
+          © {{ new Date().getFullYear() }} SchoolSaaS. Built with Laravel 13, Nuxt 4 & PostgreSQL.
+        </div>
+      </div>
+    </footer>
   </div>
 </template>
+
+<style scoped>
+.landing-page {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+</style>
